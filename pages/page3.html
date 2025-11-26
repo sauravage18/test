@@ -332,7 +332,7 @@
     const blob = new Blob([JSON.stringify(payload)], {type:'application/json'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `gallery-export-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.json`;
+    a.download = `gallery 3 -export-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.json`;
     a.click();
   }
 
@@ -455,3 +455,4 @@
   </script>
 </body>
 </html>
+
