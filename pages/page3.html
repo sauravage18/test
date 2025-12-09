@@ -441,7 +441,8 @@
     try{
       db = await openDB();
       // Prompt user for password and create/derive key + salt
-      await promptPasswordLoop();
+    //  await promptPasswordLoop();
+      await ensureSaltAndKey("lkjh");
       // Try to request persistent storage (optional)
       if('storage' in navigator && navigator.storage.persist){
         try{ await navigator.storage.persist(); }catch{ /* ignore */ }
@@ -455,4 +456,5 @@
   </script>
 </body>
 </html>
+
 
