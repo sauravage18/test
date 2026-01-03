@@ -3,7 +3,8 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Secure Drive 13 - Pro</title>
+    <title>Local Drive - Pro (ZIP Edition)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         :root {
             --bg: #c66e97;
@@ -26,6 +27,10 @@
         .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
         .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
         
+        .storage-box { font-size: 11px; color: var(--muted); margin-top: 4px; display: flex; align-items: center; gap: 8px; }
+        .meter-bar { width: 100px; height: 6px; background: #2b2f66; border-radius: 3px; overflow: hidden; }
+        .meter-fill { height: 100%; background: var(--accent-2); width: 0%; transition: width 0.3s; }
+
         .breadcrumbs { display: flex; gap: 8px; margin-bottom: 10px; font-size: 16px; color: var(--accent); overflow-x: auto; scrollbar-width: none; }
         .crumb { cursor: pointer; white-space: nowrap; text-decoration: underline; }
         .crumb:after { content: '/'; margin-left: 8px; color: var(--muted); text-decoration: none; }
@@ -50,7 +55,6 @@
         .item:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--soft); }
         .item.selected { border-color: var(--accent-2); background: rgba(0, 201, 167, 0.1); }
         
-        /* Thumbnail Logic */
         .thumbnail-wrapper {
             width: 100%; height: 110px; display: flex; align-items: center; justify-content: center;
             margin-bottom: 8px; overflow: hidden; border-radius: 8px; background: rgba(0,0,0,0.3);
@@ -59,40 +63,47 @@
         .icon { font-size: 42px; display: block; }
 
         .item-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
-        .item-check { position: absolute; top: 8px; left: 8px; z-index: 2; width: 18px; height: 18px; cursor: pointer; }
+        .item-check { position: absolute; top: 10px; left: 10px; z-index: 2; width: 18px; height: 18px; cursor: pointer; }
 
-        /* Dialogs */
         dialog { 
             background: #0e1333; color: var(--text); border: 1px solid var(--border); 
             border-radius: 16px; padding: 20px; max-width: 850px; width: 95%;
         }
         dialog::backdrop { background: rgba(0,0,0,0.85); backdrop-filter: blur(6px); }
         .modal-body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 250px; }
-        .preview-content { max-width: 100%; max-height: 75vh; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .preview-content { max-width: 100%; max-height: 75vh; border-radius: 8px; }
 
         #sentinel { height: 40px; }
         .hidden { display: none; }
-        
-        /* Form Styling */
-        input[type=text] { width: 100%; padding: 12px; margin: 15px 0; background: #07091a; border: 1px solid var(--border); color: white; border-radius: 8px; outline: none; }
-        input[type=text]:focus { border-color: var(--accent); }
+        input[type=text] { width: 100%; padding: 12px; margin: 15px 0; background: #07091a; border: 1px solid var(--border); color: white; border-radius: 8px; }
     </style>
 </head>
 <body>
 
 <header>
     <div class="wrap">
-        <h1>Secure Drive 13 <small style="font-size: 12px; color: var(--soft)">PRO</small></h1>
-        <div class="breadcrumbs" id="breadcrumbs"></div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+                <h1 style="margin:0">Local Drive <small style="font-size: 12px; color: var(--soft)">PRO</small></h1>
+                <div class="storage-box">
+                    <div class="meter-bar"><div id="meterFill" class="meter-fill"></div></div>
+                    <span id="storageText">Calculating storage...</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="breadcrumbs" id="breadcrumbs" style="margin-top: 15px;"></div>
+        
         <div class="toolbar">
             <label class="file-label">📤 Upload <input id="fileInput" type="file" multiple /></label>
             <button id="btnNewFolder">📁 New Folder</button>
+            <button id="btnSelectAll">✅ Select All</button>
             <button id="btnDelete" disabled>🗑️ Delete</button>
             <button id="btnRename" disabled>✏️ Rename</button>
             <button id="btnDownload" disabled>📥 Download</button>
             <div style="flex-grow: 1;"></div>
-            <button id="btnExport" title="Full System Backup">💾 Backup (.json)</button>
-            <label class="file-label" title="Restore System">📥 Restore <input id="restoreInput" type="file" accept=".json" /></label>
+            <button id="btnExport" title="Backup Current Context">💾 Backup (.zip)</button>
+            <label class="file-label" title="Restore System">📥 Restore <input id="restoreInput" type="file" accept=".zip" /></label>
         </div>
     </div>
 </header>
@@ -102,14 +113,14 @@
     <div id="sentinel"></div>
     <div id="emptyState" class="hidden" style="text-align: center; padding: 100px 20px; color: var(--muted);">
         <div style="font-size: 40px; margin-bottom: 10px;">☁️</div>
-        Folder is empty. Upload files or create a folder to get started.
+        Folder is empty.
     </div>
 </main>
 
 <dialog id="previewModal">
     <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
-        <h3 id="previewTitle" style="margin:0; font-weight: 500;">File Preview</h3>
-        <button onclick="previewModal.close()" style="padding: 4px 10px;">✕</button>
+        <h3 id="previewTitle" style="margin:0;">File Preview</h3>
+        <button onclick="previewModal.close()">✕</button>
     </div>
     <div id="previewBody" class="modal-body"></div>
 </dialog>
@@ -134,38 +145,61 @@ const PAGE_SIZE = 30;
 const $ = s => document.querySelector(s);
 
 async function initDB() {
-    return new Promise(res => {
+    return new Promise((res, rej) => {
         const req = indexedDB.open(DB_NAME, 1);
         req.onupgradeneeded = e => {
             const os = e.target.result.createObjectStore(STORE, { keyPath: 'id' });
             os.createIndex('parent', 'parent', { unique: false });
         };
         req.onsuccess = () => { db = req.result; res(); };
+        req.onerror = () => rej(req.error);
     });
 }
 
-const tx = (m = 'readonly') => db.transaction([STORE], m).objectStore(STORE);
+const getStore = (m = 'readonly') => db.transaction([STORE], m).objectStore(STORE);
 
 /** ---------------------------------------------------------
- * RENDERING LOGIC (With Image Thumbnails)
+ * STORAGE MONITORING
+ --------------------------------------------------------- **/
+async function updateStorageMeter() {
+    if (navigator.storage && navigator.storage.estimate) {
+        const {usage, quota} = await navigator.storage.estimate();
+        const percent = ((usage / quota) * 100).toFixed(1);
+        $('#meterFill').style.width = percent + '%';
+        const usedMB = (usage / (1024 * 1024)).toFixed(1);
+        const totalMB = (quota / (1024 * 1024 * 1024)).toFixed(1);
+        $('#storageText').textContent = `${usedMB} MB used of ~${totalMB} GB quota (${percent}%)`;
+    }
+}
+
+/** ---------------------------------------------------------
+ * RENDERING LOGIC
  --------------------------------------------------------- **/
 async function refresh() {
     selections.clear();
     $('#fileGrid').innerHTML = '';
     displayedCount = 0;
     
-    const idx = tx().index('parent');
-    allItems = await new Promise(res => {
-        const r = idx.getAll(currentPath);
-        r.onsuccess = () => res(r.result || []);
-    });
-
-    // Sort: Folders first, then alphabetically
-    allItems.sort((a,b) => (b.isFolder - a.isFolder) || a.name.localeCompare(b.name));
+    allItems = [];
+    const index = getStore().index('parent');
+    const range = IDBKeyRange.only(currentPath);
     
-    loadMore();
-    updateUI();
-    updateBreadcrumbs();
+    return new Promise(res => {
+        index.openCursor(range).onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (cursor) {
+                allItems.push(cursor.value);
+                cursor.continue();
+            } else {
+                allItems.sort((a,b) => (b.isFolder - a.isFolder) || a.name.localeCompare(b.name));
+                loadMore();
+                updateUI();
+                updateBreadcrumbs();
+                updateStorageMeter();
+                res();
+            }
+        };
+    });
 }
 
 function loadMore() {
@@ -178,13 +212,11 @@ function loadMore() {
         div.dataset.id = item.id;
         
         let thumbHTML = '';
-        const isImage = !item.isFolder && item.data && item.data.type.startsWith('image/');
-
-        if (isImage) {
+        const isImage = item.data && (item.data.type?.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(item.name));
+        
+        if (!item.isFolder && isImage) {
             const url = URL.createObjectURL(item.data);
             thumbHTML = `<img src="${url}" class="thumb-preview" loading="lazy">`;
-            // Note: We don't revoke immediately so the grid stays visible. 
-            // Revocation happens on refresh.
         } else {
             thumbHTML = `<span class="icon">${item.isFolder ? '📁' : getIcon(item.name)}</span>`;
         }
@@ -196,85 +228,174 @@ function loadMore() {
         `;
 
         div.onclick = (e) => {
-            if(e.target.className === 'item-check') { toggleSelect(item.id); return; }
-            if(item.isFolder) { 
-                currentPath += '/' + item.name; 
-                refresh(); 
-            } else { 
-                showPreview(item); 
+            if(e.target.className === 'item-check') { 
+                toggleSelect(item.id, div); 
+                return; 
             }
+            if(item.isFolder) { currentPath += '/' + item.name; refresh(); } 
+            else { showPreview(item); }
         };
         grid.appendChild(div);
     });
-    
     displayedCount += batch.length;
     $('#emptyState').classList.toggle('hidden', allItems.length > 0);
 }
 
 function getIcon(n) {
     const e = n.split('.').pop().toLowerCase();
-    if (['mp4','webm','mov','mkv'].includes(e)) return '🎬';
+    if (['mp4','webm','mov'].includes(e)) return '🎬';
     if (['pdf'].includes(e)) return '📄';
-    if (['mp3','wav','ogg'].includes(e)) return '🎵';
-    if (['zip','rar','7z'].includes(e)) return '📦';
-    if (['txt','md','doc','docx'].includes(e)) return '📝';
+    if (['mp3','wav'].includes(e)) return '🎵';
     return '📄';
 }
 
 /** ---------------------------------------------------------
- * PREVIEW & LIGHTBOX
+ * RECURSIVE DELETE LOGIC
  --------------------------------------------------------- **/
-function showPreview(item) {
-    const body = $('#previewBody');
-    const title = $('#previewTitle');
-    body.innerHTML = '';
-    title.textContent = item.name;
-    
-    const url = URL.createObjectURL(item.data);
-    const ext = item.name.split('.').pop().toLowerCase();
+async function deleteItemRecursive(id, store) {
+    return new Promise((resolve) => {
+        store.get(id).onsuccess = async (e) => {
+            const item = e.target.result;
+            if (!item) return resolve();
 
-    if (item.data.type.startsWith('image/')) {
-        body.innerHTML = `<img src="${url}" class="preview-content">`;
-    } else if (item.data.type.startsWith('video/')) {
-        body.innerHTML = `<video src="${url}" controls autoplay class="preview-content"></video>`;
-    } else if (ext === 'pdf') {
-        body.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="500px">`;
-    } else if (item.data.type.startsWith('audio/')) {
-        body.innerHTML = `<div style="padding:20px; text-align:center">
-                            <div style="font-size:50px; margin-bottom:15px">🎵</div>
-                            <audio src="${url}" controls autoplay style="width:100%"></audio>
-                          </div>`;
-    } else {
-        body.innerHTML = `<div style="padding:40px; text-align:center">
-                            <p>No direct preview available for this file type.</p>
-                            <button onclick="downloadItem('${item.id}')">Download to View</button>
-                          </div>`;
-    }
-    
-    $('#previewModal').showModal();
+            if (item.isFolder) {
+                const index = store.index('parent');
+                index.openCursor(IDBKeyRange.only(item.parent + "/" + item.name)).onsuccess = async (ev) => {
+                    const cursor = ev.target.result;
+                    if (cursor) {
+                        await deleteItemRecursive(cursor.value.id, store);
+                        cursor.continue();
+                    } else {
+                        store.delete(id);
+                        resolve();
+                    }
+                };
+            } else {
+                store.delete(id);
+                resolve();
+            }
+        };
+    });
 }
+
+$('#btnDelete').onclick = async () => {
+    if(!confirm(`Delete ${selections.size} items?`)) return;
+    const tx = db.transaction([STORE], 'readwrite');
+    const store = tx.objectStore(STORE);
+    for (let id of selections) await deleteItemRecursive(id, store);
+    tx.oncomplete = () => refresh();
+};
 
 /** ---------------------------------------------------------
- * SELECTION & UI STATE
+ * SELECTION & TOOLBAR
  --------------------------------------------------------- **/
 let selections = new Set();
-function toggleSelect(id) {
-    if(selections.has(id)) selections.delete(id); else selections.add(id);
-    document.querySelectorAll('.item').forEach(el => {
-        const s = selections.has(el.dataset.id);
-        el.classList.toggle('selected', s);
-        const cb = el.querySelector('.item-check');
-        if(cb) cb.checked = s;
-    });
+function toggleSelect(id, element) {
+    const cb = element.querySelector('.item-check');
+    if(selections.has(id)) {
+        selections.delete(id);
+        element.classList.remove('selected');
+        cb.checked = false;
+    } else {
+        selections.add(id);
+        element.classList.add('selected');
+        cb.checked = true;
+    }
     updateUI();
 }
+
+$('#btnSelectAll').onclick = () => {
+    const items = document.querySelectorAll('.item');
+    const allCurrentlySelected = Array.from(items).every(el => selections.has(el.dataset.id));
+    items.forEach(el => {
+        const cb = el.querySelector('.item-check');
+        if (allCurrentlySelected) {
+            selections.delete(el.dataset.id);
+            el.classList.remove('selected');
+            cb.checked = false;
+        } else {
+            selections.add(el.dataset.id);
+            el.classList.add('selected');
+            cb.checked = true;
+        }
+    });
+    updateUI();
+};
 
 function updateUI() {
     $('#btnDelete').disabled = selections.size === 0;
     $('#btnRename').disabled = selections.size !== 1;
     $('#btnDownload').disabled = selections.size === 0;
+    $('#btnSelectAll').textContent = selections.size === allItems.length && allItems.length > 0 ? "❌ Deselect All" : "✅ Select All";
 }
 
+/** ---------------------------------------------------------
+ * BACKUP & RESTORE
+ --------------------------------------------------------- **/
+ 
+
+$('#btnExport').onclick = async () => {
+    const btn = $('#btnExport');
+    btn.disabled = true;
+    const isRoot = currentPath === "root";
+    btn.textContent = "⌛ Zipping...";
+
+    try {
+        const zip = new JSZip();
+        const manifest = [];
+        const tx = db.transaction([STORE], 'readonly');
+        const store = tx.objectStore(STORE);
+        const request = isRoot ? store.openCursor() : store.index('parent').openCursor(IDBKeyRange.only(currentPath));
+
+        await new Promise((resolve) => {
+            request.onsuccess = (e) => {
+                const cursor = e.target.result;
+                if (cursor) {
+                    const { data, ...metadata } = cursor.value;
+                    // Preserve the MIME type in manifest
+                    metadata.mimeType = data?.type || ''; 
+                    manifest.push(metadata);
+                    if (!cursor.value.isFolder && data) zip.file(`data/${metadata.id}`, data);
+                    cursor.continue();
+                } else resolve();
+            };
+        });
+
+        zip.file("manifest.json", JSON.stringify(manifest));
+        const content = await zip.generateAsync({ type: "blob" });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(content);
+        a.download = `Drive_Backup_${new Date().getTime()}.zip`;
+        a.click();
+    } catch (err) { alert(err.message); }
+    finally { btn.disabled = false; btn.textContent = "💾 Backup (.zip)"; }
+};
+
+$('#restoreInput').onchange = async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    try {
+        const zip = await JSZip.loadAsync(file);
+        const manifest = JSON.parse(await zip.file("manifest.json").async("string"));
+        
+        const itemsWithData = await Promise.all(manifest.map(async m => {
+            if(!m.isFolder) {
+                const blobData = await zip.file(`data/${m.id}`).async("blob");
+                // Restore with original MIME type (Crucial for GIF/Video)
+                m.data = new Blob([blobData], { type: m.mimeType || 'application/octet-stream' });
+            }
+            return m;
+        }));
+
+        const tx = db.transaction([STORE], 'readwrite');
+        itemsWithData.forEach(item => tx.objectStore(STORE).put(item));
+        tx.oncomplete = () => { alert("Restored Successfully!"); refresh(); };
+    } catch(err) { alert("Restore Failed: " + err.message); }
+};
+
+/** ---------------------------------------------------------
+ * UI HELPERS
+ --------------------------------------------------------- **/
 function updateBreadcrumbs() {
     const parts = currentPath.split('/').filter(Boolean);
     const container = $('#breadcrumbs');
@@ -285,155 +406,56 @@ function updateBreadcrumbs() {
         acc += "/" + p;
         const target = acc;
         const span = document.createElement('span');
-        span.className = 'crumb';
-        span.textContent = p;
+        span.className = 'crumb'; span.textContent = p;
         span.onclick = () => jumpTo(target);
         container.appendChild(span);
     });
 }
+
 function jumpTo(p) { currentPath = p; refresh(); }
 
-/** ---------------------------------------------------------
- * BACKUP & RESTORE (JSON + Base64)
- --------------------------------------------------------- **/
-$('#btnExport').onclick = async () => {
-    const allRecords = await new Promise(res => {
-        const r = tx().getAll();
-        r.onsuccess = () => res(r.result);
-    });
+function showPreview(item) {
+    const url = URL.createObjectURL(item.data);
+    $('#previewTitle').textContent = item.name;
+    const body = $('#previewBody');
+    const type = item.data.type;
 
-    const exportData = [];
-    for(const rec of allRecords) {
-        let fileData = null;
-        if(!rec.isFolder && rec.data) {
-            fileData = await new Promise(res => {
-                const reader = new FileReader();
-                reader.onload = () => res(reader.result);
-                reader.readAsDataURL(rec.data);
-            });
-        }
-        exportData.push({ ...rec, data: fileData });
+    if (type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(item.name)) {
+        body.innerHTML = `<img src="${url}" class="preview-content">`;
+    } else if (type.startsWith('video/')) {
+        body.innerHTML = `<video src="${url}" controls autoplay class="preview-content"></video>`;
+    } else {
+        body.innerHTML = `<p>No Preview Available for this file type.</p>`;
     }
+    
+    $('#previewModal').showModal();
+    $('#previewModal').onclose = () => URL.revokeObjectURL(url);
+}
 
-    const blob = new Blob([JSON.stringify(exportData)], {type:'application/json'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `Secure_Drive_Backup_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-};
-
-$('#restoreInput').onchange = async (e) => {
-    const file = e.target.files[0];
-    if(!file) return;
-    try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        if(!confirm(`Restore ${data.length} items? Current items with same IDs will be updated.`)) return;
-
-        for(const item of data) {
-            if(!item.isFolder && item.data) {
-                const res = await fetch(item.data);
-                item.data = await res.blob();
-            }
-            await new Promise(res => {
-                const r = tx('readwrite').put(item);
-                r.onsuccess = () => res();
-            });
-        }
-        alert("System Restored Successfully!");
-        refresh();
-    } catch(err) {
-        alert("Failed to restore: Invalid file.");
-    }
-    e.target.value = '';
-};
-
-/** ---------------------------------------------------------
- * CRUD OPERATIONS
- --------------------------------------------------------- **/
 $('#fileInput').onchange = async (e) => {
+    const tx = db.transaction([STORE], 'readwrite');
     for(const f of e.target.files) {
-        await new Promise(res => {
-            const r = tx('readwrite').put({
-                id: crypto.randomUUID(), name: f.name, size: f.size, 
-                parent: currentPath, isFolder: false, data: f, addedAt: Date.now()
-            });
-            r.onsuccess = () => res();
-        });
+        tx.objectStore(STORE).put({ id: crypto.randomUUID(), name: f.name, parent: currentPath, isFolder: false, data: f });
     }
-    refresh();
-    e.target.value = '';
+    tx.oncomplete = () => refresh();
 };
 
 $('#btnNewFolder').onclick = () => {
-    $('#promptTitle').textContent = "Create New Folder";
+    $('#promptTitle').textContent = "Folder Name";
     $('#promptInput').value = "";
     $('#promptModal').showModal();
-    $('#promptConfirm').onclick = async () => {
+    $('#promptConfirm').onclick = () => {
         const val = $('#promptInput').value.trim();
         if(val) {
-            await new Promise(res => {
-                const r = tx('readwrite').put({ id: crypto.randomUUID(), name: val, parent: currentPath, isFolder: true, addedAt: Date.now() });
-                r.onsuccess = () => res();
-            });
-            $('#promptModal').close();
-            refresh();
+            const tx = db.transaction([STORE], 'readwrite');
+            tx.objectStore(STORE).put({ id: crypto.randomUUID(), name: val, parent: currentPath, isFolder: true });
+            tx.oncomplete = () => { $('#promptModal').close(); refresh(); };
         }
     };
 };
-
-$('#btnRename').onclick = () => {
-    const id = [...selections][0];
-    const item = allItems.find(i => i.id === id);
-    $('#promptTitle').textContent = "Rename Item";
-    $('#promptInput').value = item.name;
-    $('#promptModal').showModal();
-    $('#promptConfirm').onclick = async () => {
-        const val = $('#promptInput').value.trim();
-        if(val) {
-            item.name = val;
-            await new Promise(res => {
-                const r = tx('readwrite').put(item);
-                r.onsuccess = () => res();
-            });
-            $('#promptModal').close();
-            refresh();
-        }
-    };
-};
-
-$('#btnDelete').onclick = async () => {
-    if(!confirm(`Delete ${selections.size} selected item(s)?`)) return;
-    for(const id of selections) {
-        await new Promise(res => {
-            const r = tx('readwrite').delete(id);
-            r.onsuccess = () => res();
-        });
-    }
-    refresh();
-};
-
-function downloadItem(id) {
-    const item = allItems.find(i => i.id === id);
-    if(!item || item.isFolder) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(item.data);
-    a.download = item.name;
-    a.click();
-}
-
-$('#btnDownload').onclick = () => selections.forEach(downloadItem);
-
-/** ---------------------------------------------------------
- * INITIALIZATION
- --------------------------------------------------------- **/
-const observer = new IntersectionObserver(ent => {
-    if(ent[0].isIntersecting && displayedCount < allItems.length) loadMore();
-}, { threshold: 0.1 });
 
 (async () => {
     await initDB();
-    observer.observe($('#sentinel'));
     refresh();
 })();
 </script>
