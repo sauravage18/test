@@ -73,7 +73,7 @@
         .modal-body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 250px; }
         .preview-content { max-width: 100%; max-height: 75vh; border-radius: 8px; }
 
-        #sentinel { height: 40px; }
+        #sentinel { height: 60px; width: 100%; }
         .hidden { display: none; }
         input[type=text] { width: 100%; padding: 12px; margin: 15px 0; background: #07091a; border: 1px solid var(--border); color: white; border-radius: 8px; }
     </style>
@@ -141,7 +141,7 @@
 const DB_NAME = 'Drive13_Ultimate';
 const STORE = 'fs';
 let db, currentPath = "root", allItems = [], displayedCount = 0;
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 50; // Increased page size for better initial load
 const $ = s => document.querySelector(s);
 
 async function initDB() {
@@ -173,7 +173,7 @@ async function updateStorageMeter() {
 }
 
 /** ---------------------------------------------------------
- * RENDERING LOGIC
+ * RENDERING LOGIC (Fixed loading issue)
  --------------------------------------------------------- **/
 async function refresh() {
     selections.clear();
@@ -203,6 +203,8 @@ async function refresh() {
 }
 
 function loadMore() {
+    if (displayedCount >= allItems.length) return;
+
     const grid = $('#fileGrid');
     const batch = allItems.slice(displayedCount, displayedCount + PAGE_SIZE);
     
@@ -228,10 +230,7 @@ function loadMore() {
         `;
 
         div.onclick = (e) => {
-            if(e.target.className === 'item-check') { 
-                toggleSelect(item.id, div); 
-                return; 
-            }
+            if(e.target.className === 'item-check') { toggleSelect(item.id, div); return; }
             if(item.isFolder) { currentPath += '/' + item.name; refresh(); } 
             else { showPreview(item); }
         };
@@ -250,17 +249,39 @@ function getIcon(n) {
 }
 
 /** ---------------------------------------------------------
- * RECURSIVE DELETE LOGIC
+ * RENAME & DELETE
  --------------------------------------------------------- **/
+$('#btnRename').onclick = () => {
+    const id = Array.from(selections)[0];
+    const item = allItems.find(i => i.id === id);
+    if (!item) return;
+
+    $('#promptTitle').textContent = "Rename Item";
+    $('#promptInput').value = item.name;
+    $('#promptModal').showModal();
+
+    $('#promptConfirm').onclick = () => {
+        const newName = $('#promptInput').value.trim();
+        if (newName && newName !== item.name) {
+            const tx = db.transaction([STORE], 'readwrite');
+            item.name = newName;
+            tx.objectStore(STORE).put(item);
+            tx.oncomplete = () => { $('#promptModal').close(); refresh(); };
+        } else {
+            $('#promptModal').close();
+        }
+    };
+};
+
 async function deleteItemRecursive(id, store) {
     return new Promise((resolve) => {
         store.get(id).onsuccess = async (e) => {
             const item = e.target.result;
             if (!item) return resolve();
-
             if (item.isFolder) {
                 const index = store.index('parent');
-                index.openCursor(IDBKeyRange.only(item.parent + "/" + item.name)).onsuccess = async (ev) => {
+                const childPath = (item.parent === "root" ? "" : item.parent) + "/" + item.name;
+                index.openCursor(IDBKeyRange.only(childPath)).onsuccess = async (ev) => {
                     const cursor = ev.target.result;
                     if (cursor) {
                         await deleteItemRecursive(cursor.value.id, store);
@@ -336,15 +357,13 @@ function updateUI() {
 
 $('#btnExport').onclick = async () => {
     const btn = $('#btnExport');
-    btn.disabled = true;
-    const isRoot = currentPath === "root";
-    btn.textContent = "⌛ Zipping...";
-
+    btn.disabled = true; btn.textContent = "⌛ Zipping...";
     try {
         const zip = new JSZip();
         const manifest = [];
         const tx = db.transaction([STORE], 'readonly');
         const store = tx.objectStore(STORE);
+        const isRoot = currentPath === "root";
         const request = isRoot ? store.openCursor() : store.index('parent').openCursor(IDBKeyRange.only(currentPath));
 
         await new Promise((resolve) => {
@@ -352,7 +371,6 @@ $('#btnExport').onclick = async () => {
                 const cursor = e.target.result;
                 if (cursor) {
                     const { data, ...metadata } = cursor.value;
-                    // Preserve the MIME type in manifest
                     metadata.mimeType = data?.type || ''; 
                     manifest.push(metadata);
                     if (!cursor.value.isFolder && data) zip.file(`data/${metadata.id}`, data);
@@ -360,12 +378,11 @@ $('#btnExport').onclick = async () => {
                 } else resolve();
             };
         });
-
         zip.file("manifest.json", JSON.stringify(manifest));
         const content = await zip.generateAsync({ type: "blob" });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(content);
-        a.download = `Drive_Backup_${new Date().getTime()}.zip`;
+        a.download = `Backup_${new Date().getTime()}.zip`;
         a.click();
     } catch (err) { alert(err.message); }
     finally { btn.disabled = false; btn.textContent = "💾 Backup (.zip)"; }
@@ -377,16 +394,13 @@ $('#restoreInput').onchange = async (e) => {
     try {
         const zip = await JSZip.loadAsync(file);
         const manifest = JSON.parse(await zip.file("manifest.json").async("string"));
-        
         const itemsWithData = await Promise.all(manifest.map(async m => {
             if(!m.isFolder) {
                 const blobData = await zip.file(`data/${m.id}`).async("blob");
-                // Restore with original MIME type (Crucial for GIF/Video)
                 m.data = new Blob([blobData], { type: m.mimeType || 'application/octet-stream' });
             }
             return m;
         }));
-
         const tx = db.transaction([STORE], 'readwrite');
         itemsWithData.forEach(item => tx.objectStore(STORE).put(item));
         tx.oncomplete = () => { alert("Restored Successfully!"); refresh(); };
@@ -404,30 +418,25 @@ function updateBreadcrumbs() {
     parts.forEach(p => {
         if(p === "root") return;
         acc += "/" + p;
-        const target = acc;
         const span = document.createElement('span');
         span.className = 'crumb'; span.textContent = p;
-        span.onclick = () => jumpTo(target);
+        span.onclick = () => jumpTo(acc);
         container.appendChild(span);
     });
 }
-
 function jumpTo(p) { currentPath = p; refresh(); }
 
 function showPreview(item) {
     const url = URL.createObjectURL(item.data);
     $('#previewTitle').textContent = item.name;
     const body = $('#previewBody');
-    const type = item.data.type;
-
-    if (type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(item.name)) {
+    if (item.data.type.startsWith('image/') || /\.(gif|jpg|png|webp)$/i.test(item.name)) {
         body.innerHTML = `<img src="${url}" class="preview-content">`;
-    } else if (type.startsWith('video/')) {
+    } else if (item.data.type.startsWith('video/')) {
         body.innerHTML = `<video src="${url}" controls autoplay class="preview-content"></video>`;
     } else {
-        body.innerHTML = `<p>No Preview Available for this file type.</p>`;
+        body.innerHTML = `<p>No Preview Available.</p>`;
     }
-    
     $('#previewModal').showModal();
     $('#previewModal').onclose = () => URL.revokeObjectURL(url);
 }
@@ -454,8 +463,16 @@ $('#btnNewFolder').onclick = () => {
     };
 };
 
+// Initialize Observer for infinite scroll
+const observer = new IntersectionObserver(ent => {
+    if(ent[0].isIntersecting && displayedCount < allItems.length) {
+        loadMore();
+    }
+}, { threshold: 0.1, rootMargin: '100px' });
+
 (async () => {
     await initDB();
+    observer.observe($('#sentinel'));
     refresh();
 })();
 </script>
